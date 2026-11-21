@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>الري الذكي — التحكم عن بُعد</title>
+
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:#edf4ef;
+  color:#163d31;
+  font-family:Tahoma,Arial,sans-serif
+}
+main{max-width:800px;margin:auto;padding:12px}
+header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px
+}
+h1{font-size:22px}
+h2{text-align:center;font-size:18px;margin:4px 0}
+button,input{font:inherit}
+button{
+  border:0;
+  border-radius:10px;
+  padding:11px 8px;
+  min-height:42px;
+  cursor:pointer
+}
+button:disabled,input:disabled{opacity:.45;cursor:default}
+.connect{background:white;color:#137b59}
+.status{font-size:12px;line-height:1.8;min-height:42px}
+.grid{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  gap:10px
+}
+.card{
+  background:white;
+  border-radius:18px;
+  padding:14px 10px;
+  min-width:0
+}
+.gauge{
+  position:relative;
+  width:clamp(95px,29vw,155px);
+  max-width:100%;
+  margin:auto
+}
+.gauge svg{
+  width:100%;
+  display:block;
+  transform:rotate(-90deg)
+}
+.track,.arc{fill:none;stroke-width:10}
+.track{stroke:#e8f0eb}
+.arc{
+  stroke:#22a376;
+  stroke-linecap:round;
+  stroke-dasharray:289.03;
+  stroke-dashoffset:289.03;
+  transition:stroke-dashoffset .3s
+}
+.value{
+  position:absolute;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:clamp(27px,7vw,40px);
+  font-weight:bold
+}
+.row{
+  display:flex;
+  justify-content:space-between;
+  gap:5px;
+  font-size:12px;
+  margin:12px 0
+}
+.buttons{display:flex;gap:6px}
+.buttons button{flex:1;font-size:13px}
+.on{background:#137b59;color:white}
+.off{background:#fae8e3;color:#943d2a}
+.auto{
+  width:100%;
+  background:#e8f1ec;
+  color:#24563f;
+  margin-top:10px;
+  font-size:12px
+}
+input[type=range]{width:100%;accent-color:#137b59}
+.note{font-size:11px;line-height:1.8;color:#637c70}
+dialog{
+  border:0;
+  border-radius:18px;
+  padding:20px;
+  width:min(94vw,440px);
+  max-height:92dvh;
+  overflow:auto
+}
+dialog::backdrop{background:#163d3166}
+label{display:block;font-size:13px;margin:12px 0 6px}
+.field{
+  width:100%;
+  padding:11px;
+  border:1px solid #cbdcd1;
+  border-radius:9px;
+  font-size:16px;
+  direction:ltr
+}
+.dialogButtons{display:flex;gap:8px;margin-top:16px}
+.dialogButtons button{flex:1}
+#message{
+  white-space:pre-wrap;
+  font-size:12px;
+  color:#a04422;
+  line-height:1.8
+}
+footer{text-align:center;margin:12px 0}
+.result{font-size:12px;min-height:22px;margin-top:12px}
+@media(max-height:640px){
+  .gauge{width:95px}
+  .card{padding:9px 8px}
+  .row{margin:7px 0}
+  h1{margin:7px 0}
+}
+</style>
+</head>
+
+<body>
+<main>
+  <header>
+    <h1>🌱 الري الذكي</h1>
+    <button class="connect" onclick="showConnection()">
+      🌐 الاتصال ▾
+    </button>
+  </header>
+
+  <div id="status" class="status">
+    أدخل إعدادات MQTT لبدء التحكم عن بُعد.
+  </div>
+
+  <div id="cards" class="grid"></div>
+  <div id="result" class="result" role="status"></div>
+
+  <footer class="note">
+    تحتاج هذه الصفحة إلى ESP32 متصل بالراوتر وخادم MQTT الخاص بك.
+    <br>
+    إعداد Wi-Fi والمعايرة من واجهة ESP32 المحلية فقط.
+  </footer>
+</main>
+
+<dialog id="settings">
+  <h2>🌐 اتصال التحكم عن بُعد</h2>
+
+  <form id="form">
+    <label for="host">عنوان خادم HiveMQ Cloud</label>
+    <input
+      class="field"
+      id="host"
+      placeholder="xxxx.s1.eu.hivemq.cloud"
+      required
+    >
+
+    <label for="device">معرّف الجهاز — من واجهة ESP32</label>
+    <input
+      class="field"
+      id="device"
+      placeholder="irrigation-xxxxxxxx"
+      required
+      pattern="[A-Za-z0-9_-]{1,40}"
+    >
+
+    <label for="user">اسم مستخدم MQTT</label>
+    <input
+      class="field"
+      id="user"
+      required
+      autocomplete="username"
+    >
+
+    <label for="pass">
+      🔒 كلمة مرور MQTT — ليست كلمة مرور Wi-Fi
+    </label>
+    <input
+      class="field"
+      id="pass"
+      type="password"
+      required
+      autocomplete="current-password"
+    >
+
+    <label>
+      <input
+        type="checkbox"
+        onchange="document.getElementById('pass').type=this.checked?'text':'password'"
+      >
+      إظهار كلمة المرور
+    </label>
+
+    <p class="note">
+      تُستخدم بيانات الدخول في هذه الصفحة فقط ولا تُحفظ في ملفات GitHub.
+      كلمة المرور تبقى في ذاكرة التبويب وتُحذف عند إعادة تحميله.
+    </p>
+
+    <div id="message"></div>
+
+    <div class="dialogButtons">
+      <button class="on" type="submit">اتصال</button>
+      <button type="button" onclick="disconnectRemote()">فصل</button>
+      <button
+        type="button"
+        onclick="document.getElementById('settings').close()"
+      >إغلاق</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.4/dist/mqtt.min.js"></script>
+
+<script>
+let client=null,latest=null,base='',lastLive=0,live=false;
+let seenSession=0,seenSequence=0;
+
+const pending=new Map();
+const editing=[false,false];
+const $=id=>document.getElementById(id);
+
+for(let i=0;i<2;i++){
+  $('cards').insertAdjacentHTML('beforeend',`
+    <section class="card">
+      <h2>العبوة ${i+1}</h2>
+
+      <div class="gauge">
+        <svg viewBox="0 0 120 120">
+          <circle class="track" cx="60" cy="60" r="46"/>
+          <circle class="arc" id="arc${i}" cx="60" cy="60" r="46"/>
+        </svg>
+        <div class="value" id="value${i}">--%</div>
+      </div>
+
+      <div class="row">
+        <span>المضخة</span>
+        <b id="pump${i}">--</b>
+      </div>
+
+      <div class="row">
+        <span>RAW</span>
+        <b id="raw${i}">--</b>
+      </div>
+
+      <div class="buttons">
+        <button
+          data-command
+          disabled
+          class="on"
+          onclick="command(${i},'on')"
+        >تشغيل</button>
+
+        <button
+          data-command
+          disabled
+          class="off"
+          onclick="command(${i},'off')"
+        >إيقاف</button>
+      </div>
+
+      <button
+        data-command
+        disabled
+        class="auto"
+        id="auto${i}"
+        onclick="toggleAuto(${i})"
+      >التلقائي</button>
+
+      <div class="row">
+        <span>حد بدء الري</span>
+        <b id="label${i}">--%</b>
+      </div>
+
+      <input
+        data-command
+        disabled
+        id="threshold${i}"
+        type="range"
+        min="5"
+        max="90"
+        value="50"
+        aria-label="حد الري للعبوة ${i+1}"
+        oninput="editing[${i}]=true;$('label${i}').textContent=this.value+'%'"
+        onchange="saveThreshold(${i},this.value)"
+      >
+
+      <div id="note${i}" class="note"></div>
+    </section>
+  `);
+}
+
+function enableControls(on){
+  document.querySelectorAll('[data-command]').forEach(
+    e=>e.disabled=!on
+  );
+}
+
+function showConnection(){
+  $('settings').showModal();
+}
+
+function stale(text){
+  live=false;
+  enableControls(false);
+  $('status').textContent=text;
+}
+
+function disconnectRemote(){
+  if(client){
+    client.end(true);
+    client=null;
+  }
+
+  for(const p of pending.values()){
+    clearTimeout(p.timer);
+    p.reject(new Error('انقطع الاتصال'));
+  }
+
+  pending.clear();
+  latest=null;
+  lastLive=0;
+  seenSession=0;
+  seenSequence=0;
+
+  stale(
+    'غير متصل — أُوقفت الأوامر البعيدة. فصل الصفحة لا يوقف المضخات.'
+  );
+}
+
+$('form').addEventListener('submit',e=>{
+  e.preventDefault();
+
+  const host=$('host').value.trim();
+  const device=$('device').value.trim();
+
+  if(!/^[A-Za-z0-9.-]+\.hivemq\.cloud$/.test(host)){
+    $('message').textContent=
+      'أدخل اسم المضيف فقط، دون https:// أو رقم منفذ.';
+    return;
+  }
+
+  if(!/^[A-Za-z0-9_-]{1,40}$/.test(device)){
+    return;
+  }
+
+  if(!window.mqtt){
+    $('message').textContent=
+      'تعذر تحميل مكتبة الاتصال؛ تحقق من الإنترنت وأعد تحميل الصفحة.';
+    return;
+  }
+
+  disconnectRemote();
+  base='irrigation/'+device;
+
+  const newClient=mqtt.connect('wss://'+host+':8884/mqtt',{
+    username:$('user').value,
+    password:$('pass').value,
+    clientId:'phone-'+Math.random().toString(16).slice(2),
+    clean:true,
+    protocolVersion:4,
+    reconnectPeriod:3000,
+    connectTimeout:10000,
+    queueQoSZero:false
+  });
+
+  client=newClient;
+  $('message').textContent='جارٍ الاتصال…';
+
+  newClient.on('connect',()=>{
+    if(client!==newClient)return;
+
+    seenSession=0;
+    seenSequence=0;
+    lastLive=0;
+    live=false;
+    enableControls(false);
+
+    newClient.subscribe(
+      [base+'/state',base+'/ack'],
+      {qos:1},
+      (error,granted)=>{
+        if(
+          error ||
+          !granted ||
+          granted.some(g=>g.qos===128)
+        ){
+          stale('فشل الاشتراك؛ راجع صلاحيات MQTT.');
+          return;
+        }
+
+        $('message').textContent=
+          'الخادم متصل؛ ننتظر تحديثًا حيًا من المتحكم.';
+
+        $('status').textContent=
+          'الخادم متصل؛ ننتظر تحديثًا حيًا من المتحكم.';
+
+        $('settings').close();
+      }
+    );
+  });
+
+  newClient.on('message',(topic,bytes)=>{
+    if(client!==newClient)return;
+
+    let data;
+
+    try{
+      data=JSON.parse(bytes.toString());
+    }catch{
+      return;
+    }
+
+    if(topic===base+'/ack'){
+      const item=pending.get(data.id);
+      if(!item)return;
+
+      clearTimeout(item.timer);
+      pending.delete(data.id);
+
+      if(data.ok){
+        item.resolve();
+      }else{
+        item.reject(new Error(data.error||'رُفض الأمر'));
+      }
+      return;
+    }
+
+    if(
+      topic!==base+'/state' ||
+      data.deviceId!==device ||
+      !Array.isArray(data.channels) ||
+      data.channels.length!==2
+    ){
+      return;
+    }
+
+    const age=Date.now()/1000-data.ts;
+
+    if(!Number.isFinite(age)||Math.abs(age)>20){
+      stale(
+        'البيانات قديمة أو وقت الجوال غير صحيح؛ لا يمكن إرسال أوامر.'
+      );
+      return;
+    }
+
+    if(
+      data.session===seenSession &&
+      data.seq>seenSequence
+    ){
+      live=true;
+      lastLive=Date.now();
+    }else if(data.session!==seenSession){
+      seenSession=data.session;
+      live=false;
+      enableControls(false);
+    }
+
+    seenSequence=data.seq;
+    latest=data;
+
+    enableControls(live&&newClient.connected);
+
+    $('status').textContent=live
+      ? '● المتحكم متصل — بيانات حية عبر الإنترنت'
+      : 'وصلت قراءة؛ ننتظر تحديثًا جديدًا لتأكيد الاتصال.';
+
+    data.channels.forEach((c,i)=>{
+      $('value'+i).textContent=c.valid
+        ? c.moisture+'%'
+        : '--';
+
+      $('arc'+i).style.strokeDashoffset=
+        289.03*(1-(c.valid?c.moisture:0)/100);
+
+      $('raw'+i).textContent=c.raw;
+
+      $('pump'+i).textContent=c.pump
+        ? 'تعمل'
+        : data.measuring&&c.requested
+          ? 'متوقفة للقياس'
+          : 'متوقفة';
+
+      $('auto'+i).textContent=c.automatic
+        ? 'التلقائي مفعّل'
+        : 'التلقائي ملغى';
+
+      if(!editing[i]){
+        $('threshold'+i).value=c.threshold;
+        $('label'+i).textContent=c.threshold+'%';
+      }
+
+      $('note'+i).textContent=
+        (
+          data.sampleAge>2000
+            ? 'القراءة محفوظة مؤقتًا أثناء تشغيل المضخة. '
+            : ''
+        )+
+        (
+          !c.valid
+            ? 'افحص الحساس.'
+            : 'يتوقف الري عند '+
+              Math.min(c.threshold+data.stopGap,100)+'%.'
+        );
+    });
+  });
+
+  newClient.on('offline',()=>{
+    if(client===newClient){
+      stale('الخادم غير متصل؛ الأرقام المعروضة قديمة.');
+    }
+  });
+
+  newClient.on('close',()=>{
+    if(client===newClient){
+      stale(
+        'انقطع الاتصال؛ الأوامر معطلة حتى عودة البيانات الحية.'
+      );
+    }
+  });
+
+  newClient.on('error',()=>{
+    if(client===newClient){
+      $('message').textContent=
+        'تعذر الاتصال؛ راجع المضيف وبيانات MQTT وصلاحياته.';
+
+      stale('تعذر الاتصال بخادم MQTT.');
+    }
+  });
+});
+
+function send(ch,action,value){
+  return new Promise((resolve,reject)=>{
+    if(
+      !client ||
+      !client.connected ||
+      !live ||
+      Date.now()-lastLive>8000
+    ){
+      reject(new Error('لا يوجد اتصال حي بالمتحكم'));
+      return;
+    }
+
+    const id=
+      Date.now().toString(36)+'-'+
+      Math.random().toString(36).slice(2,10);
+
+    const data={
+      id,
+      ch,
+      action,
+      session:latest.session,
+      ts:Math.floor(Date.now()/1000)
+    };
+
+    if(value!==undefined){
+      data.value=Number(value);
+    }
+
+    const timer=setTimeout(()=>{
+      pending.delete(id);
+
+      reject(
+        new Error('لم يصل تأكيد التنفيذ؛ راقب حالة المضخة')
+      );
+    },8000);
+
+    pending.set(id,{resolve,reject,timer});
+
+    client.publish(
+      base+'/command',
+      JSON.stringify(data),
+      {qos:1,retain:false},
+      error=>{
+        if(error&&pending.has(id)){
+          clearTimeout(timer);
+          pending.delete(id);
+          reject(error);
+        }
+      }
+    );
+  });
+}
+
+async function command(ch,action){
+  try{
+    await send(ch,action);
+    $('result').textContent='أكد المتحكم تنفيذ الأمر.';
+  }catch(e){
+    $('result').textContent=e.message;
+  }
+}
+
+function toggleAuto(i){
+  if(latest){
+    command(
+      i,
+      latest.channels[i].automatic?'manual':'auto'
+    );
+  }
+}
+
+async function saveThreshold(i,value){
+  try{
+    await send(i,'threshold',value);
+    $('result').textContent='حُفظ حد الري.';
+  }catch(e){
+    $('result').textContent=e.message;
+  }finally{
+    editing[i]=false;
+  }
+}
+
+setInterval(()=>{
+  if(live&&Date.now()-lastLive>8000){
+    stale(
+      'لم تصل بيانات حية منذ 8 ثوانٍ؛ الأوامر معطلة والقراءات قديمة.'
+    );
+  }
+},1000);
+</script>
+</body>
+</html>
