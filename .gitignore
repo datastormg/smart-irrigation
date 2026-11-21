@@ -1,0 +1,7 @@
+*.ino
+*.bin
+*.elf
+.env
+.env.*
+secrets.h
+secrets.json
